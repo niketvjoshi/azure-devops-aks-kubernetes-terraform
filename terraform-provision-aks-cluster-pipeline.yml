@@ -1,0 +1,90 @@
+trigger:
+- master
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+- name: BETA_ENVIRONMENT
+  value: beta
+- name: QA_ENVIRONMENT
+  value: betav1
+- name: STAGING_ENVIRONMENT
+  value: staging
+- name: PRODUCTION_ENVIRONMENT
+  value: production
+
+stages:
+- stage: TerraformValidate
+  jobs:
+    - job: TerraformValidateJob
+      continueOnError: false
+      steps:
+      - task: PublishPipelineArtifact@1
+        displayName: Publish Artifacts 
+        inputs:
+          targetPath: '$(System.DefaultWorkingDirectory)/terraform-manifests'
+          artifact: 'terraform-manifests-out'
+          publishLocation: 'pipeline'
+      - task: TerraformInstaller@0
+        displayName: Terraform Install 
+        inputs:
+          terraformVersion: '0.13.5'
+      - task: TerraformCLI@0
+        displayName: Terraform Init 
+        inputs:
+          command: 'init'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/terraform-manifests'
+          backendType: 'azurerm'
+          backendServiceArm: 'terraform-aks-azurerm-svc-con'
+          backendAzureRmSubscriptionId: '999b8920-0f23-42c6-ab0e-6bc472f80616'
+          ensureBackend: true
+          backendAzureRmResourceGroupName: 'staging-exampledotcom-devops-resource-group'
+          backendAzureRmResourceGroupLocation: 'centralindia'
+          backendAzureRmStorageAccountName: 'azterraformk8sstorage'
+          backendAzureRmContainerName: 'tfstatefiles'
+          backendAzureRmKey: "aks-base.tfstate"
+          allowTelemetryCollection: false    
+      - task: TerraformCLI@0
+        displayName: Terraform Validate 
+        inputs:
+          command: 'validate'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/terraform-manifests'
+          allowTelemetryCollection: false
+      - task: DownloadSecureFile@1
+        name: sshkey
+        inputs:
+          secureFile: 'exampledotcom_ssh_key.pub'
+      - task: TerraformCLI@0
+        displayName: Terraform Init
+        inputs:
+          command: 'init'
+          #workingDirectory: '$(Pipeline.Workspace)/terraform-manifests-out'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/terraform-manifests'
+          backendType: 'azurerm'
+          backendServiceArm: 'terraform-aks-azurerm-svc-con'
+          backendAzureRmSubscriptionId: '999b8920-0f23-42c6-ab0e-6bc472f80616'
+          backendAzureRmResourceGroupName: 'staging-exampledotcom-devops-resource-group'
+          backendAzureRmStorageAccountName: 'azterraformk8sstorage'
+          backendAzureRmContainerName: 'tfstatefiles'
+          backendAzureRmKey: 'aks-$(STAGING_ENVIRONMENT).tfstate'
+          allowTelemetryCollection: false
+      - task: TerraformCLI@0
+        displayName: Terraform Plan
+        inputs:
+          command: 'plan'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/terraform-manifests'
+          environmentServiceName: 'terraform-aks-azurerm-svc-con'
+          providerAzureRmSubscriptionId: '999b8920-0f23-42c6-ab0e-6bc472f80616'
+          commandOptions: '-var ssh_public_key=$(sshkey.secureFilePath) -var environment=$(STAGING_ENVIRONMENT) -out $(System.DefaultWorkingDirectory)/terraform-manifests/$(STAGING_ENVIRONMENT)-$(Build.BuildId).out'
+          allowTelemetryCollection: false
+
+      - task: TerraformCLI@0
+        displayName: Terraform Apply 
+        inputs:
+          command: 'apply'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/terraform-manifests'
+          environmentServiceName: 'terraform-aks-azurerm-svc-con'
+          commandOptions: '$(System.DefaultWorkingDirectory)/terraform-manifests/$(STAGING_ENVIRONMENT)-$(Build.BuildId).out'
+          allowTelemetryCollection: false
+            
